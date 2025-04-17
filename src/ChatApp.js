@@ -179,7 +179,7 @@ function ChatApp() {
                 }
             `}</style>
 
-            <div className="background-watermark">Anil Gemix</div>
+            <div className="background-watermark">Anil Kumar Gemix</div>
 
             <header className={`p-4 flex justify-between z-10`} style={{ backgroundColor: darkMode ? '#333' : theme.primary, color: 'white' }}>
                 <h1 className="text-2xl font-bold">AnilGemix</h1>
