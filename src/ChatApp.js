@@ -6,7 +6,14 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAi = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY);
-const model = genAi.getGenerativeModel({ model: "gemini-1.5-pro" });
+// Using the standard model instead of pro for higher quotas
+const model = genAi.getGenerativeModel({ model: "gemini-pro" });
+
+// Rate limiting settings
+const RATE_LIMIT = {
+    MAX_REQUESTS_PER_MINUTE: 10,
+    REQUESTS_WINDOW_MS: 60000, // 1 minute
+};
 
 // Define color themes
 const themes = {
@@ -47,15 +54,19 @@ const themes = {
 function ChatApp() {
     const [messages, setMessages] = useState([
         { sender: "user", text: "" },
-        { sender: "ai", text: "Hello! I'm your AI assistant. I can help you with:\n\n- Code analysis and generation\n- Text processing and summarization\n- General knowledge and problem-solving\n\nHow can I assist you today?" }
+        { sender: "ai", text: "Hello! I'm your AI assistant. I can help you with:\n\n- Code analysis and generation\n- Text processing and summarization\n- Image analysis and description\n- General knowledge and problem-solving\n\nHow can I assist you today?" }
     ]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [inputType, setInputType] = useState("text"); // text, code, image
     const [suggestions, setSuggestions] = useState([]);
+    const [isRateLimited, setIsRateLimited] = useState(false);
+    const [rateLimitReset, setRateLimitReset] = useState(null);
     const messageEndRef = useRef(null);
     const chatSessionRef = useRef(null);
-    const [darkMode, setDarkMode] = useState(false);
+    const requestCountRef = useRef(0);
+    const lastRequestTimeRef = useRef(Date.now());
+    const darkMode = useState(false)[0];
     const [theme, setTheme] = useState(themes.coolTones);
     const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -125,9 +136,40 @@ function ChatApp() {
         setShowSuggestions(false);
     };
 
+    // Rate limiting function
+    const checkRateLimit = () => {
+        const now = Date.now();
+        if (now - lastRequestTimeRef.current > RATE_LIMIT.REQUESTS_WINDOW_MS) {
+            // Reset counter if window has passed
+            requestCountRef.current = 0;
+            lastRequestTimeRef.current = now;
+        }
+
+        if (requestCountRef.current >= RATE_LIMIT.MAX_REQUESTS_PER_MINUTE) {
+            const resetTime = new Date(lastRequestTimeRef.current + RATE_LIMIT.REQUESTS_WINDOW_MS);
+            setRateLimitReset(resetTime);
+            setIsRateLimited(true);
+            return false;
+        }
+
+        requestCountRef.current++;
+        return true;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!input.trim()) return;
+
+        // Check rate limit before proceeding
+        if (!checkRateLimit()) {
+            const timeUntilReset = Math.ceil((rateLimitReset - Date.now()) / 1000);
+            setMessages((prev) => [...prev, {
+                sender: "ai",
+                text: `⚠️ Rate limit exceeded. Please wait ${timeUntilReset} seconds before sending another message.`,
+                type: "error"
+            }]);
+            return;
+        }
 
         const inputType = analyzeInput(input);
         setMessages((prev) => [...prev, { 
@@ -166,10 +208,30 @@ function ChatApp() {
         } catch (error) {
             console.log(error);
             setIsTyping(false);
-            setMessages((prev) => [
-                ...prev,
-                { sender: "ai", text: "Sorry, there was an error", isGenerating: false }
-            ]);
+            
+            // Handle quota exceeded error specifically
+            if (error.message?.includes('quota')) {
+                setMessages((prev) => [
+                    ...prev,
+                    { 
+                        sender: "ai", 
+                        text: "⚠️ API quota exceeded. The service is temporarily unavailable. Please try again in a few minutes.",
+                        type: "error"
+                    }
+                ]);
+                // Set rate limit for 5 minutes when quota is exceeded
+                setRateLimitReset(new Date(Date.now() + 300000));
+                setIsRateLimited(true);
+            } else {
+                setMessages((prev) => [
+                    ...prev,
+                    { 
+                        sender: "ai", 
+                        text: "Sorry, there was an error processing your request. Please try again.",
+                        type: "error"
+                    }
+                ]);
+            }
         }
     };
 
@@ -557,11 +619,14 @@ function ChatApp() {
                         <input
                             type="text"
                             value={input}
-                            placeholder="Type a message..."
+                            placeholder={isRateLimited ? `Rate limited. Please wait until ${rateLimitReset?.toLocaleTimeString()}` : "Type a message..."}
                             onChange={handleInputChange}
+                            disabled={isRateLimited}
                             className={`w-full p-3 rounded-lg border transition-all duration-300 ${
                                 darkMode ? "border-gray-600" : "border-gray-300"
-                            } bg-${darkMode ? "gray-700" : "white"} text-${darkMode ? "white" : "black"} focus:outline-none focus:ring-2 focus:ring-${theme.buttonAccent}`}
+                            } bg-${darkMode ? "gray-700" : "white"} text-${darkMode ? "white" : "black"} focus:outline-none focus:ring-2 focus:ring-${theme.buttonAccent} ${
+                                isRateLimited ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                         />
                         <div className="input-type-indicator">
                             {inputType === "code" && <Code size={20} className="text-blue-500" />}
@@ -570,11 +635,14 @@ function ChatApp() {
                     </div>
                     <button
                         type="submit"
+                        disabled={isRateLimited}
                         className={`ml-2 px-6 py-3 rounded-lg text-white send-button send-button-glow ${
                             theme === themes.coolTones ? "bg-teal-500" :
                             theme === themes.mutedEarthTones ? "bg-red-400" :
                             theme === themes.minimalistNeutrals ? "bg-yellow-400" : "bg-pink-500"
-                        } hover:bg-opacity-90 focus:outline-none transition duration-300 transform hover:scale-105`}
+                        } hover:bg-opacity-90 focus:outline-none transition duration-300 transform hover:scale-105 ${
+                            isRateLimited ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
                     >
                         <Send size={24} />
                     </button>
@@ -585,6 +653,4 @@ function ChatApp() {
 }
 
 export default ChatApp;
-
-
 
