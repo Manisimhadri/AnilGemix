@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, Moon, Sun, Settings, MessageSquare, User, Sparkles, Code, Image, FileText, Brain } from "lucide-react";
+import { Send, Moon, Sun, MessageSquare, User, Sparkles, Code, FileText, Brain } from "lucide-react";
 import ReactMarkDown from "react-markdown";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -7,7 +7,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAi = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY);
 // Using the standard model instead of pro for higher quotas
-const model = genAi.getGenerativeModel({ model: "gemini-pro" });
+const model = genAi.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Rate limiting settings
 const RATE_LIMIT = {
@@ -66,7 +66,7 @@ function ChatApp() {
     const chatSessionRef = useRef(null);
     const requestCountRef = useRef(0);
     const lastRequestTimeRef = useRef(Date.now());
-    const darkMode = useState(false)[0];
+    const [darkMode, setDarkMode] = useState(false);
     const [theme, setTheme] = useState(themes.coolTones);
     const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -92,7 +92,6 @@ function ChatApp() {
     const analyzeInput = (text) => {
         // Basic input analysis
         const codePattern = /```[\s\S]*?```/g;
-        const urlPattern = /(https?:\/\/[^\s]+)/g;
         
         if (codePattern.test(text)) {
             return "code";
@@ -190,14 +189,16 @@ function ChatApp() {
                 { sender: "ai", text: "", isGenerating: true, type: inputType }
             ]);
 
+            // eslint-disable-next-line no-loop-func
             for await (const chunk of result.stream) {
                 const chunkText = chunk.text();
                 fullResponse += chunkText;
 
-                setMessages((prev) => [
-                    ...prev.slice(0, -1),
-                    { sender: "ai", text: fullResponse, isGenerating: true, type: inputType }
-                ]);
+                setMessages((prev) => {
+                    const newMessages = [...prev.slice(0, -1)];
+                    newMessages.push({ sender: "ai", text: fullResponse, isGenerating: true, type: inputType });
+                    return newMessages;
+                });
             }
 
             setMessages((prev) => [
@@ -254,14 +255,14 @@ function ChatApp() {
                 </code>
             );
         },
-        h1: ({ node, ...props }) => (
-            <h1 style={{ fontSize: "2em", fontWeight: "bold" }} {...props} />
+        h1: ({ node, children, ...props }) => (
+            <h1 style={{ fontSize: "2em", fontWeight: "bold" }} {...props}>{children}</h1>
         ),
-        h2: ({ node, ...props }) => (
-            <h2 style={{ fontSize: "1.5em", fontWeight: "bold" }} {...props} />
+        h2: ({ node, children, ...props }) => (
+            <h2 style={{ fontSize: "1.5em", fontWeight: "bold" }} {...props}>{children}</h2>
         ),
-        h3: ({ node, ...props }) => (
-            <h3 style={{ fontSize: "1.17em", fontWeight: "bold" }} {...props} />
+        h3: ({ node, children, ...props }) => (
+            <h3 style={{ fontSize: "1.17em", fontWeight: "bold" }} {...props}>{children}</h3>
         ),
     };
 
@@ -279,7 +280,7 @@ function ChatApp() {
                 ? `linear-gradient(135deg, ${theme.darkModeBackground} 0%, ${theme.primary}22 100%)`
                 : `linear-gradient(135deg, ${theme.background} 0%, ${theme.primary}11 100%)`
         }}>
-            <style jsx global>{`
+            <style>{`
                 @keyframes typing {
                     0% { opacity: 0.3; }
                     50% { opacity: 1; }
